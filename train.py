@@ -9,6 +9,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def run_training():
+    """
+    This function runs inside the SageMaker training container.
+    """
     logger.info("Starting training...")
     train_dir = os.environ.get("SM_CHANNEL_TRAIN")
     if not train_dir:
@@ -101,6 +104,49 @@ def run_training():
         logger.info(f"Model saved to: {model_path}")
     except Exception as e:
         logger.error(f"ERROR saving model: {e}")
+        sys.exit(1)
+
+def launch_training_job():
+    """
+    This function runs locally (e.g., from GitHub Actions) to launch a SageMaker training job.
+    It assumes your training data is already stored in S3.
+    """
+    logger.info("Launching SageMaker training job...")
+    import sagemaker
+    from sagemaker.xgboost.estimator import XGBoost
+
+    # Required environment variables: SAGEMAKER_ROLE and S3_BUCKET.
+    role = os.environ.get("SAGEMAKER_ROLE")
+    bucket = os.environ.get("S3_BUCKET")
+    if not role or not bucket:
+        logger.error("ERROR: SAGEMAKER_ROLE or S3_BUCKET environment variable is not set.")
+        sys.exit(1)
+    
+    sagemaker_session = sagemaker.Session()
+    
+    # Use TRAINING_DATA_S3 if provided; otherwise, default to s3://{bucket}/data.
+    training_data_s3 = os.environ.get("TRAINING_DATA_S3", f"s3://{bucket}/data")
+    logger.info(f"Using training data S3 path: {training_data_s3}")
+    
+    # Create the XGBoost estimator (using this script as the entry point).
+    xgb_estimator = XGBoost(
+        entry_point="train.py",  # This file serves as the training script.
+        source_dir=".",          # The repository root.
+        framework_version="1.5-1",
+        instance_type="ml.c4.2xlarge",
+        instance_count=1,
+        role=role,
+        sagemaker_session=sagemaker_session,
+        use_spot_instances=True,
+        max_run=3600,
+        max_wait=7200
+    )
+    
+    try:
+        xgb_estimator.fit({"train": training_data_s3})
+        logger.info("SageMaker training job launched successfully!")
+    except Exception as e:
+        logger.error(f"ERROR launching SageMaker training job: {e}")
         sys.exit(1)
 
 def main():
