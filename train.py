@@ -7,7 +7,7 @@ import xgboost as xgb
 def run_training():
     """
     Runs inside the SageMaker training container.
-    Expects SM_CHANNEL_TRAIN (for training data) and SM_MODEL_DIR (for model artifacts) to be set.
+    Expects SM_CHANNEL_TRAIN (for training data) and SM_MODEL_DIR (for saving the model) to be set.
     """
     train_dir = os.environ.get("SM_CHANNEL_TRAIN")
     if not train_dir:
@@ -22,7 +22,7 @@ def run_training():
         print("ERROR listing files in SM_CHANNEL_TRAIN:", e)
         sys.exit(1)
     
-    # Construct full paths to training files.
+    # Build full paths to your training files
     X_train_path = os.path.join(train_dir, "X_train.csv")
     y_train_path = os.path.join(train_dir, "y_train.csv")
     
@@ -38,7 +38,19 @@ def run_training():
     print("X_train shape:", X_train.shape)
     print("y_train shape:", y_train.shape)
     
-    # Parse hyperparameters passed from SageMaker.
+    # Print data types for debugging purposes
+    print("Data types in X_train:")
+    print(X_train.dtypes)
+    
+    # Check if column 0 is non-numeric (e.g., object) and convert it to categorical if needed.
+    if X_train.dtypes[0] == 'object':
+        print("Column 0 is non-numeric. Converting column 0 to categorical type.")
+        X_train[0] = X_train[0].astype("category")
+        enable_categorical = True
+    else:
+        enable_categorical = False
+    
+    # Parse hyperparameters passed from SageMaker (and ignore any extra args)
     parser = argparse.ArgumentParser()
     parser.add_argument("--max_depth", type=int, default=5)
     parser.add_argument("--eta", type=float, default=0.1)
@@ -47,28 +59,35 @@ def run_training():
     parser.add_argument("--eval_metric", type=str, default="rmse")
     parser.add_argument("--num_round", type=int, default=100)
     parser.add_argument("--objective", type=str, default="reg:squarederror")
-    # Use parse_known_args() to ignore any extra SageMaker arguments.
     args, _ = parser.parse_known_args()
     print("Hyperparameters:", args)
     
+    # Create the XGBoost DMatrix, enabling categorical support if needed.
+    try:
+        dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=enable_categorical)
+    except Exception as e:
+        print("ERROR during DMatrix creation:", e)
+        sys.exit(1)
+    
+    # Set training parameters.
+    params = {
+        "max_depth": args.max_depth,
+        "eta": args.eta,
+        "subsample": args.subsample,
+        "colsample_bytree": args.colsample_bytree,
+        "eval_metric": args.eval_metric,
+        "objective": args.objective
+    }
+    print("Training with parameters:", params)
+    
     # Train the model.
     try:
-        dtrain = xgb.DMatrix(X_train, label=y_train)
-        params = {
-            "max_depth": args.max_depth,
-            "eta": args.eta,
-            "subsample": args.subsample,
-            "colsample_bytree": args.colsample_bytree,
-            "eval_metric": args.eval_metric,
-            "objective": args.objective
-        }
-        print("Training with parameters:", params)
         bst = xgb.train(params, dtrain, num_boost_round=args.num_round)
     except Exception as e:
         print("ERROR during training:", e)
         sys.exit(1)
     
-    # Save the model.
+    # Save the model to SM_MODEL_DIR.
     model_dir = os.environ.get("SM_MODEL_DIR", "/opt/ml/model")
     os.makedirs(model_dir, exist_ok=True)
     model_path = os.path.join(model_dir, "xgboost_model.bin")
@@ -82,7 +101,7 @@ def run_training():
 def launch_training_job():
     """
     Runs locally (e.g., in GitHub Actions) to launch a SageMaker training job.
-    Uses an existing S3 location for training data if TRAINING_DATA_S3 is set.
+    Assumes your training data is already in S3.
     """
     print("Launching SageMaker training job...")
     import sagemaker
@@ -96,19 +115,14 @@ def launch_training_job():
     
     sagemaker_session = sagemaker.Session()
     
-    # If training data is already in S3, use that path.
-    training_data_s3 = os.environ.get("TRAINING_DATA_S3")
-    if training_data_s3:
-        print("Using training data from provided S3 path:", training_data_s3)
-    else:
-        # Otherwise, default to "s3://{bucket}/data"
-        training_data_s3 = f"s3://{bucket}/data"
-        print("TRAINING_DATA_S3 not set; defaulting to:", training_data_s3)
+    # Use TRAINING_DATA_S3 if provided, otherwise default to s3://{bucket}/data.
+    training_data_s3 = os.environ.get("TRAINING_DATA_S3", f"s3://{bucket}/data")
+    print("Using training data S3 path:", training_data_s3)
     
-    # Create the estimator. (This script itself will be used as the entry point.)
+    # Create the XGBoost estimator using this same script as the entry point.
     xgb_estimator = XGBoost(
-        entry_point="train.py",   # This file is the entry point.
-        source_dir=".",           # Repository root.
+        entry_point="train.py",   # This file is used as the training entry point.
+        source_dir=".",           # Root directory of your repository.
         framework_version="1.5-1",
         instance_type="ml.c4.2xlarge",
         instance_count=1,
@@ -127,12 +141,12 @@ def launch_training_job():
         sys.exit(1)
 
 def main():
-    # When running inside SageMaker, SM_CHANNEL_TRAIN is set.
+    # If running inside SageMaker, SM_CHANNEL_TRAIN will be set.
     if "SM_CHANNEL_TRAIN" in os.environ:
         print("Detected SM_CHANNEL_TRAIN. Running training inside container...")
         run_training()
     else:
-        print("SM_CHANNEL_TRAIN not found. Running locally to launch training job...")
+        print("SM_CHANNEL_TRAIN not found. Launching training job from local environment...")
         launch_training_job()
 
 if __name__ == "__main__":
