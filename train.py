@@ -45,13 +45,10 @@ def run_training():
     logger.info("Initial X_train dtypes:")
     logger.info(X_train.dtypes)
     
-    # Convert any column that is not numeric, boolean, or categorical to a categorical type.
+    # Ensure all columns are of type int, float, bool, or category
     for col in X_train.columns:
-        if not (pd.api.types.is_numeric_dtype(X_train[col]) or 
-                pd.api.types.is_bool_dtype(X_train[col]) or 
-                pd.api.types.is_categorical_dtype(X_train[col])):
-            logger.info(f"Column {col} is not numeric/boolean/categorical. Converting to category.")
-            X_train[col] = X_train[col].astype("category")
+        if not pd.api.types.is_numeric_dtype(X_train[col]) and not pd.api.types.is_bool_dtype(X_train[col]):
+            X_train[col] = X_train[col].astype('category')
     
     logger.info("After conversion, X_train dtypes:")
     logger.info(X_train.dtypes)
