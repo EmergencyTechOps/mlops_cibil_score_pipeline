@@ -5,6 +5,7 @@ import pandas as pd
 import xgboost as xgb
 import logging
 
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -45,18 +46,15 @@ def run_training():
     logger.info(X_train.dtypes)
     
     # Convert any column that is not numeric, boolean, or categorical to a categorical type.
-    enable_categorical = False
     for col in X_train.columns:
         if not (pd.api.types.is_numeric_dtype(X_train[col]) or 
                 pd.api.types.is_bool_dtype(X_train[col]) or 
                 pd.api.types.is_categorical_dtype(X_train[col])):
             logger.info(f"Column {col} is not numeric/boolean/categorical. Converting to category.")
             X_train[col] = X_train[col].astype("category")
-            enable_categorical = True
     
     logger.info("After conversion, X_train dtypes:")
     logger.info(X_train.dtypes)
-    logger.info(f"enable_categorical = {enable_categorical}")
     
     # Parse hyperparameters (SageMaker passes these via command line)
     parser = argparse.ArgumentParser()
@@ -72,7 +70,7 @@ def run_training():
     
     # Create the DMatrix for XGBoost with categorical handling as needed.
     try:
-        dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)  # Set enable_categorical to True
+        dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
     except Exception as e:
         logger.error(f"ERROR during DMatrix creation: {e}")
         sys.exit(1)
