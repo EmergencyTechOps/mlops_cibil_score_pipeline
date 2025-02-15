@@ -72,7 +72,7 @@ def run_training():
     
     # Create the DMatrix for XGBoost with categorical handling as needed.
     try:
-        dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=enable_categorical)
+        dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)  # Set enable_categorical to True
     except Exception as e:
         logger.error(f"ERROR during DMatrix creation: {e}")
         sys.exit(1)
